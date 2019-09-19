@@ -44,8 +44,9 @@ def huber_loss(y, y_predicted, m=1.0):
 
 for i in range(train_steps):
     with tf.GradientTape() as tape:
+        tape.watch(X)
         yhat = X * W + b
-        loss = squared_loss(y, yhat)
+        loss = [squared_loss(y[i], yhat[i]) for i in range(len(X))]
         dW, db = tape.gradient(loss, [W, b])
         W.assign_sub(dW * learning_rate)
         b.assign_sub(db * learning_rate)
