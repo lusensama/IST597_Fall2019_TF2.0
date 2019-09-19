@@ -7,8 +7,8 @@ import tensorflow as tf
 # import tensorflow.contrib.eager as tfe
 import matplotlib.pyplot as plt
 
-
-
+tf.enable_eager_execution()
+tf.executing_eagerly()
 # Create data
 NUM_EXAMPLES = 500
 
@@ -39,17 +39,17 @@ def huber_loss(y, y_predicted, m=1.0):
     if np.absolute(y_predicted-y) <= m:
         return .5*((y_predicted - y)**2)
     else:
-      return  m*np.absolute(y_predicted-y)-.5*(m**2)
+      return  m*np.absolute(y_predicted-y)-.5*tf.square(m)
 
 
 for i in range(train_steps):
     with tf.GradientTape() as tape:
-        tape.watch(X)
+        # tape.watch(W)
         yhat = X * W + b
-        loss = [squared_loss(y[i], yhat[i]) for i in range(len(X))]
-        dW, db = tape.gradient(loss, [W, b])
-        W.assign_sub(dW * learning_rate)
-        b.assign_sub(db * learning_rate)
+        loss = tf.reduce_mean(huber_loss(y,yhat))
+    dW, db = tape.gradient(loss, [W,b])
+    W.assign_sub(dW * learning_rate)
+    b.assign_sub(db * learning_rate)
     if i % 100 == 0:
         print(("Loss at step {:03d}: {:.3f}".format(i, loss)))
     ###TO DO ## Calculate gradients
@@ -57,5 +57,5 @@ plt.plot(X, y, 'bo',label='org')
 plt.plot(X, y * W.numpy() + b.numpy(), 'r',
          label="huber regression")
 plt.legend()
-plt.show
+plt.show()
 print(" ")
