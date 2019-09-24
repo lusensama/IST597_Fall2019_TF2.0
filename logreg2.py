@@ -4,10 +4,13 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 import numpy as np
 import tensorflow as tf
+from sklearn.ensemble import RandomForestClassifier
 # import tensorflow.contrib.eager as tfe
 import time
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix
+rfc = RandomForestClassifier(n_jobs=-1, n_estimators=10)
+
 
 # Define paramaters for the model
 learning_rate = 0.001
@@ -69,7 +72,8 @@ train_data = train_dataset[train_index]
 train_label = train_labelset[train_index]
 val_data = train_dataset[val_index]
 val_label = train_labelset[val_index]
-
+rfc.fit(train_data, train_label)
+print(rfc.score(val_data, val_label))
 # train_dataset = tf.data.Dataset.from_tensor_slices((train_data, train_label)).batch(batch_size)
 # # val_dataset = tf.data.Dataset.from_tensor_slices((val_data, val_label))
 # test_dataset = tf.data.Dataset.from_tensor_slices((test_data, test_label)).batch(batch_size)
@@ -138,15 +142,12 @@ for epoch in range(10):
     with tf.GradientTape() as tape:
         logits = logi(batch_train_X, w, b)
         loss = loss_func(logits, batch_train_y)
-        grads = tape.gradient(loss, [w, b])
-        optimizer.apply_gradients(zip(grads, [w, b]))
+        # grads = tape.gradient(loss, [w, b])
+        # optimizer.apply_gradients(zip(grads, [w, b]))
 
-    # dW, db = tape.gradient(loss, [w, b])
-    #
-    # # if tf.equal(loss, prevloss):
-    # #     learning_rate /= 2
-    # w.assign_sub(dW * learning_rate)
-    # b.assign_sub(db * learning_rate)
+    dW, db = tape.gradient(loss, [w, b])
+    w.assign_sub(dW * learning_rate)
+    b.assign_sub(db * learning_rate)
 
     preds = tf.nn.softmax(logits)
     correct_preds = tf.equal(tf.argmax(preds, -1), tf.argmax(val_label, -1))
