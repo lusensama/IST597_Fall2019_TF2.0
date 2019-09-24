@@ -41,13 +41,14 @@ def load_mnist(path, kind='train', val_size = 0.0):
     # if kind=='train':
     #     return train_test_split(images, labels, test_size=val_size, random_state=13)
     # else:
-    return images, labels
+    img = images.reshape([-1, 28, 28, 1])
+    return img, labels
 
 
 # Define paramaters for the model
-learning_rate = 0.01
-batch_size = 64
-n_epochs = 10
+learning_rate = 0.001
+batch_size = 32
+n_epochs = 2
 n_train = None
 n_test = None
 n_classes = 10
@@ -68,25 +69,24 @@ test_data, test_label = load_mnist('./data/', kind='t10k')
 # test_data = tfds.load('fashion_mnist', tfds.Split.TEST)
 # Step 2: Create datasets and iterator
 # create training Dataset and batch it
-BATCH_SIZE = 64
-SHUFFLE_BUFFER_SIZE = 100
 
-train_dataset = tf.data.Dataset.from_tensor_slices((train_data, train_label)).batch(32)
+# SHUFFLE_BUFFER_SIZE = 100
+
+train_dataset = tf.data.Dataset.from_tensor_slices((train_data, train_label)).batch(batch_size)
 # val_dataset = tf.data.Dataset.from_tensor_slices((val_data, val_label))
-test_dataset = tf.data.Dataset.from_tensor_slices((test_data, test_label))
+test_dataset = tf.data.Dataset.from_tensor_slices((test_data, test_label)).batch(batch_size)
 
 # create testing Dataset and batch it
 
 
-train_dataset = train_dataset.shuffle(SHUFFLE_BUFFER_SIZE).batch(BATCH_SIZE)
-# val_dataset = val_dataset.batch(BATCH_SIZE)
-test_dataset = test_dataset.batch(BATCH_SIZE)
+# train_dataset = train_dataset.batch_and_drop_remainder(BATCH_SIZE)
+# # val_dataset = val_dataset.batch(BATCH_SIZE)
+# test_dataset = test_dataset.batch_and_drop_remainder(BATCH_SIZE)
 
 # create one iterator and initialize it with different datasets
 
-# iterator = tf.data.Iterator.from_structure(train_dataset.output_types,
-#                                            train_dataset.output_shapes)
-# img, label = iterator.get_next()
+# train_iterator = train_dataset[0:63]
+# train_img, train_label = train_iterator.get_next()
 #
 # train_init = iterator.make_initializer(train_data)	# initializer for train_data
 # test_init = iterator.make_initializer(test_data)	# initializer for train_data
@@ -140,6 +140,7 @@ def model(data, train=False):
     # 2D convolution, with 'SAME' padding (i.e. the output feature map has
     # the same size as the input). Note that {strides} is a 4D array whose
     # shape matches the data layout: [image index, y, x, depth].
+    data = tf.cast(data, tf.float32)
     conv = tf.nn.conv2d(data,
                         conv1_weights,
                         strides=[1, 1, 1, 1],
@@ -186,49 +187,61 @@ def model(data, train=False):
 # use cross entropy of softmax of logits as the loss function
 
 def loss_func(logit, y):
-    return tf.losses.softmax_cross_entropy_with_logits(labels=y, logits=logit)
+    return tf.compat.v2.nn.softmax_cross_entropy_with_logits(labels=tf.reshape(y,(batch_size, 1)), logits=logit)
 
 
 def train(inputs, targets):
-    with tf.GradientTape() as tape:
-        loss_value = loss_func(inputs, targets)
-    dc1w, dc1b ,dc2w, dc2b, df1w, df1b, df2w, df2b= tape.gradient(loss_value, [conv1_weights, conv1_biases,
-                                                                                conv2_weights, conv2_biases,
-                                                                                fc1_weights, fc1_biases,
-                                                                                fc2_weights, fc2_biases,])
-    conv1_weights.assign_sub(learning_rate * dc1w)
-    conv1_biases.assign_sub(learning_rate * dc1b)
-    conv2_weights.assign_sub(learning_rate * dc2w)
-    conv2_biases.assign_sub(learning_rate * dc2b)
-    fc1_weights.assign_sub(learning_rate * df1w)
-    fc1_biases.assign_sub(learning_rate * df1b)
-    fc2_weights.assign_sub(learning_rate * df2w)
-    fc2_biases.assign_sub(learning_rate * df2b)
+    loss_value = loss_func(inputs, targets)
+    return loss_value
+
+iter = train_dataset.__iter__()
+train_img, train_lbl = iter.next()
+optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate)
 
 for i in range(n_epochs):
-    data_iter = train_dataset.__iter__()
     for j in range(train_data.shape[0]//batch_size):
-        batch_train, batch_label = data_iter.next()
-        logits = model(batch_train, train=True)
-        train(logits, batch_label)
+        with tf.GradientTape() as tape:
+            logits = model(train_img, train=True)
+            loss_value = train(logits, train_lbl)
+
+        dc1w, dc1b ,dc2w, dc2b, df1w, df1b, df2w, df2b= tape.gradient(loss_value, [conv1_weights, conv1_biases,
+                                                                                    conv2_weights, conv2_biases,
+                                                                                    fc1_weights, fc1_biases,
+                                                                                    fc2_weights, fc2_biases,])
+        optimizer.apply_gradients(zip([dc1w, dc1b ,dc2w, dc2b, df1w, df1b, df2w, df2b],
+                                      [conv1_weights, conv1_biases,
+                                       conv2_weights, conv2_biases,
+                                       fc1_weights, fc1_biases,
+                                       fc2_weights, fc2_biases, ]))
+
+        # conv1_weights.assign_sub(learning_rate * dc1w)
+        # conv1_biases.assign_sub(learning_rate * dc1b)
+        # conv2_weights.assign_sub(learning_rate * dc2w)
+        # conv2_biases.assign_sub(learning_rate * dc2b)
+        # fc1_weights.assign_sub(learning_rate * df1w)
+        # fc1_biases.assign_sub(learning_rate * df1b)
+        # fc2_weights.assign_sub(learning_rate * df2w)
+        # fc2_biases.assign_sub(learning_rate * df2b)
+        print(loss_value)
 
 
 
 
 # Step 6: define optimizer
 # using Adam Optimizer with pre-defined learning rate to minimize loss
-optimizer = tf.train.optimizer.Adam(learning_rate)
-optimizer.apply_gradients(zip(gradient, logits.trainable_variables))
+
 #############################
 ########## TO DO ############
 #############################
 
-
+itert = test_dataset.__iter__()
+test_img, test_lbl = iter.next()
+logits = model(test_img, train=False)
 # Step 7: calculate accuracy with test set
 preds = tf.nn.softmax(logits)
-correct_preds = tf.equal(tf.argmax(preds, 1), tf.argmax(label, 1))
+correct_preds = tf.equal(tf.argmax(preds, 1), tf.argmax(test_lbl, 1, axis=-1))
 accuracy = tf.reduce_sum(tf.cast(correct_preds, tf.float32))
-
+print("Final accuracy is {}".format(accuracy))
 #Step 8: train the model for n_epochs times
 for i in range(n_epochs):
 	total_loss = 0
