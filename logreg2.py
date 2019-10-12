@@ -5,17 +5,18 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import numpy as np
 import tensorflow as tf
 from sklearn.ensemble import RandomForestClassifier
-# import tensorflow.contrib.eager as tfe
+
 import time
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix
 import tensorflow_datasets as tfds
+import time
 rfc = RandomForestClassifier(n_jobs=-1, n_estimators=10)
 
 
 # Define paramaters for the model
 learning_rate = 0.001
-batch_size = 32
+batch_size = 128
 n_epochs = 2
 n_train = None
 n_test = None
@@ -25,20 +26,20 @@ pixel_depth = 255
 image_size = 28
 seed = None
 val_size = 0.2
-
+checkpoint_path = './ckpt/'
 # Step 1: Read in data
 fmnist_folder = 'None'
-
+percent = 60
 
 # Create dataset load function [Refer fashion mnist github page for util function]
 # Create train,validation,test split
 # train, val, test = utils.read_fmnist(fmnist_folder, flatten=True)
 
-train_data = tfds.load(name='fashion_mnist', split=tfds.Split.TRAIN.subsplit(tfds.percent[:80])).shuffle(buffer_size=1000).batch(batch_size=batch_size)
+train_data = tfds.load(name='fashion_mnist', split=tfds.Split.TRAIN.subsplit(tfds.percent[:percent])).shuffle(buffer_size=1000).batch(batch_size=batch_size, drop_remainder=True)
 
 
-val_data = tfds.load(name='fashion_mnist', split=tfds.Split.TRAIN.subsplit(tfds.percent[80:])).shuffle(buffer_size=1000).batch(batch_size=batch_size)
-test_data = tfds.load(name='fashion_mnist', split=tfds.Split.TEST)
+val_data = tfds.load(name='fashion_mnist', split=tfds.Split.TRAIN.subsplit(tfds.percent[percent:])).shuffle(buffer_size=1000).batch(batch_size=1000, drop_remainder=True)
+test_data = tfds.load(name='fashion_mnist', split=tfds.Split.TEST).batch(batch_size=10000)
 
 
 def load_mnist(path, kind='train', val_size=0.0):
@@ -73,8 +74,8 @@ def load_mnist(path, kind='train', val_size=0.0):
 # create training Dataset and batch it
 
 # fmnist_folder = './data/'
-# train_dataset, train_labelset = load_mnist('./data/')
-# test_dataset, test_labelset = load_mnist('./data/', kind='t10k')
+# train_datarf, train_labelrf = load_mnist('./data/')
+# test_datarf, test_labelrf = load_mnist('./data/', kind='t10k')
 # np.random.seed(seed)
 # train_index = np.random.choice(len(train_dataset), round(len(train_dataset) * (1.0 - val_size)), replace=False)
 # val_index = np.array(list(set(range(len(train_dataset))) - set(train_index)))
@@ -87,8 +88,8 @@ def load_mnist(path, kind='train', val_size=0.0):
 # print(val_data)
 # print(val_label)
 # t_data = tf.data.Dataset.from_tensor_slices((train_data, train_label)).batch(batch_size)
-# rfc.fit(train_data, train_label)
-# print(rfc.score(val_data, val_label))
+# rfc.fit(train_datarf, train_labelrf)
+# print(rfc.score(test_datarf, test_labelrf))
 # train_dataset = tf.data.Dataset.from_tensor_slices((train_data, train_label)).batch(batch_size)
 # # val_dataset = tf.data.Dataset.from_tensor_slices((val_data, val_label))
 # test_dataset = tf.data.Dataset.from_tensor_slices((test_data, test_label)).batch(batch_size)
@@ -107,9 +108,13 @@ def load_mnist(path, kind='train', val_size=0.0):
 # b is initialized to 0
 # shape of w depends on the dimension of X and Y so that Y = tf.matmul(X, w)
 # shape of b depends on Y
-W = tf.Variable(tf.random.normal(shape=(784, 10)), dtype=tf.float32)
-b = tf.Variable(tf.random.normal(shape=(10,)), dtype=tf.float32)
+W = tf.Variable(tf.random.normal(shape=(784, 10)), dtype=tf.float32, name='W')
+b = tf.Variable(tf.random.normal(shape=(10,)), dtype=tf.float32, name='b')
+noise = tf.Variable(tf.random.normal(shape=(10,), stddev=0.01), dtype=tf.float32, name='noise')
+checkpoint = tf.train.Checkpoint(W=W, b=b)
+# checkpoint.restore(tf.train.latest_checkpoint(checkpoint_path))
 
+# checkpoint = tf.train.Checkpoint(W=W, b=b)
 # batch_index = np.random.choice(len(train_label), size=batch_size)
 # batch_train_X = train_data[batch_index]
 # batch_train_y = np.matrix(train_label[batch_index]).T
@@ -123,10 +128,10 @@ b = tf.Variable(tf.random.normal(shape=(10,)), dtype=tf.float32)
 # itert = test_dataset.__iter__()
 # test_img, test_lbl = iter.next()
 
-def model(img):
-    image_batch = tf.cast(tf.reshape(img, (batch_size, 784)), tf.float32)
+def model(size,img):
+    image_batch = tf.cast(tf.reshape(img, (size, 784)), tf.float32)
     image_batch /= 255.0
-    model_output = tf.matmul(image_batch, W) + b
+    model_output = tf.matmul(image_batch, W) + b + noise
     return model_output
 
 def softmax_model(image_batch):
@@ -153,7 +158,7 @@ def cross_entropy(model_output, label_batch):
 
 # @tf.implicit_value_and_gradients
 def cal_gradient(image_batch, label_batch):
-    return cross_entropy(model(image_batch), label_batch)
+    return cross_entropy(model(batch_size, image_batch), label_batch)
 
 
 # iterator = tf.compat.v1.data.make_one_shot_iterator(train_data)
@@ -173,7 +178,7 @@ def cal_gradient(image_batch, label_batch):
 
 # Step 6: define optimizer
 # using Adam Optimizer with pre-defined learning rate to minimize loss
-optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate)
+optimizer = tf.compat.v1.train.RMSPropOptimizer(learning_rate)
 
 # train_img, train_label = train_data.get_next()
 # train_init = train_data.make_initializer(train_data)	# initializer for train_data
@@ -185,24 +190,62 @@ optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate)
 # accuracy = tf.reduce_sum(tf.cast(correct_preds, tf.float32))
 #
 # print(accuracy.numpy())
-
-for epoch in range(10):
+cumulative_weight_loss = []
+val_acc = []
+for epoch in range(1):
     step = 0
+    t0 = time.time()
     for data in train_data:
+
         image_batch, label_batch = data['image'], data['label']
-        with tf.GradientTape() as tape:
-            loss = cal_gradient(image_batch, label_batch)
-            grads = tape.gradient(loss, [W, b])
-            optimizer.apply_gradients(zip(grads[0], W), zip(grads[1], b))
-        if (step % 100 == 0):
-            print("step: {}  loss: {}".format(step, loss.numpy()))
-        model_test_output = softmax_model(train_data.test.images)
-        model_test_label = train_data.test.labels
 
-        correct_prediction = tf.equal(tf.argmax(model_test_output, 1), tf.argmax(model_test_label, 1))
-        accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+        with tf.device("gpu:0"):
+            with tf.GradientTape() as tape:
+                loss = cal_gradient(image_batch, label_batch)
+                if (step % 50 == 0):
+                    cumulative_weight_loss.append(tf.reduce_mean(loss[0]))
+                # dW, db = tape.gradient(loss, [W, b])
+                # W.assign_sub(dW * learning_rate)
+                # b.assign_sub(db * learning_rate)
+                grads = tape.gradient(loss, [W, b])
+                optimizer.apply_gradients(zip(grads, [W, b]))
+            # if (step % 100 == 0):
+            #     print("step: {}  loss: {}".format(step, loss.numpy()))
 
-        print("test accuracy = {}".format(accuracy.numpy()))
+            val_i = val_data.__iter__()
+            next_e = val_i.get_next()
+            model_test_output = model(len(next_e['image']), next_e['image'])
+            model_test_label = tf.one_hot(next_e['label'], depth=10)
+            correct_prediction = tf.equal(tf.argmax(model_test_output, 1), tf.argmax(model_test_label, 1))
+            accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+            if (step % 50 == 0):
+                val_acc.append(accuracy)
+
+
+            print("epoch {}, step {}, validation accuracy = {}".format(epoch, step, accuracy.numpy()))
+        step+=1
+    t1 = time.time()
+    print("time used on cpu = {}".format(t1 - t0))
+    # learning_rate /=2
+# final accuracy
+plt.plot(cumulative_weight_loss, 'r-',
+         label="RMSprop loss")
+plt.legend()
+plt.show()
+plt.plot(val_acc, 'b-',
+         label="validation accuracy")
+plt.legend()
+plt.show()
+test_i = test_data.__iter__()
+next_e = test_i.get_next()
+model_test_output = model(len(next_e['image']), next_e['image'])
+model_test_label = tf.one_hot(next_e['label'], depth=10)
+correct_prediction = tf.equal(tf.argmax(model_test_output, 1), tf.argmax(model_test_label, 1))
+accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+print("final test accuracy = {}".format(accuracy.numpy()))
+
+checkpoint.save(checkpoint_path)
+
     # # Generate random batch index
     # batch_index = np.random.choice(len(train_label), size=batch_size)
     # batch_train_X = train_data[batch_index]
